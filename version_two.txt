@@ -1,0 +1,261 @@
+import javafx.application.Application;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Rectangle;
+import javafx.scene.text.Text;
+import javafx.stage.Stage;
+import java.util.*;
+
+public class Main extends Application {
+
+    private static final int BOARD_SIZE = 40;
+    private static final int GRID_ROWS = 8;
+    private static final int GRID_COLUMNS = 5;
+    private List<Integer> playerPositions = new ArrayList<>();
+    private List<Text> playerMarkers = new ArrayList<>();
+    private GridPane grid;
+    private Label diceValueLabel;
+    private int currentPlayer = 0;
+    private int numPlayers = 1;
+    private List<String> playerTypes = new ArrayList<>();
+    private List<Color> playerColors = Arrays.asList(Color.RED, Color.BLUE, Color.GREEN, Color.YELLOW, Color.PURPLE, Color.ORANGE);
+    private Set<Integer> skipTurnPositions = new HashSet<>(Arrays.asList(10, 25, 38));
+    private Set<Integer> luckPositions = new HashSet<>(Arrays.asList(5, 15, 30));
+    private Set<Integer> chooseReturnPositions = new HashSet<>(Arrays.asList(17, 27));
+    private Set<Integer> magicPositions = new HashSet<>(Arrays.asList(20, 35));
+    private Set<Integer> skipNextTurn = new HashSet<>();
+    private boolean extraTurn = false;
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+
+    @Override
+    public void start(Stage primaryStage) {
+        primaryStage.setTitle("Jogo de Tabuleiro");
+
+        TextInputDialog dialog = new TextInputDialog("");
+        dialog.setTitle("Number of Players");
+        dialog.setHeaderText("Enter the number of players (1-6):");
+        dialog.setContentText("Players:");
+
+        Optional<String> result = dialog.showAndWait();
+        result.ifPresent(num -> {
+            numPlayers = Integer.parseInt(num);
+            if (numPlayers < 1 || numPlayers > 6) {
+                showAlert("Invalid number of players. Setting to 1 player.");
+                numPlayers = 1;
+            }
+        });
+
+        for (int i = 0; i < numPlayers; i++) {
+            ChoiceDialog<String> typeDialog = new ChoiceDialog<>("Normal", "Sortudo", "Azarado", "Normal");
+            typeDialog.setTitle("Player Type");
+            typeDialog.setHeaderText("Select the type for Player " + (i + 1));
+            typeDialog.setContentText("Type:");
+
+            Optional<String> typeResult = typeDialog.showAndWait();
+            typeResult.ifPresent(playerTypes::add);
+        }
+
+        grid = new GridPane();
+        grid.setAlignment(Pos.CENTER);
+        grid.setHgap(6);
+        grid.setVgap(6);
+
+        for (int i = 0; i < GRID_ROWS; i++) {
+            for (int j = 0; j < GRID_COLUMNS; j++) {
+                int position = i * GRID_COLUMNS + j;
+                Rectangle square = new Rectangle(50, 50);
+                square.setFill(getSquareColor(position));
+                square.setStroke(Color.BLACK);
+                grid.add(square, j, i);
+            }
+        }
+
+        for (int i = 0; i < numPlayers; i++) {
+            playerPositions.add(0);
+            Text playerMarker = new Text("P" + (i + 1));
+            playerMarker.setFill(playerColors.get(i));
+            playerMarkers.add(playerMarker);
+            grid.add(playerMarker, 0, 0);
+        }
+
+        diceValueLabel = new Label("Dice Value: ");
+
+        Button rollButton = new Button("Roll Dice");
+        rollButton.setOnAction(event -> movePlayer());
+
+        HBox buttonBox = new HBox(10);
+        buttonBox.setAlignment(Pos.CENTER);
+        buttonBox.getChildren().addAll(diceValueLabel, rollButton);
+
+        VBox root = new VBox();
+        root.getChildren().addAll(grid, buttonBox);
+        root.setAlignment(Pos.CENTER);
+        root.setSpacing(20);
+        root.setPadding(new Insets(20));
+
+        Scene scene = new Scene(root, 400, 600);
+        primaryStage.setScene(scene);
+        primaryStage.show();
+    }
+
+    private Color getSquareColor(int position) {
+        if (skipTurnPositions.contains(position)) return Color.LIGHTYELLOW;
+        if (luckPositions.contains(position)) return Color.LIGHTBLUE;
+        if (position == 13) return Color.LIGHTPINK;
+        if (chooseReturnPositions.contains(position)) return Color.LIGHTGREEN;
+        if (magicPositions.contains(position)) return Color.LIGHTCYAN;
+        return Color.GRAY;
+    }
+
+    private void movePlayer() {
+        if (skipNextTurn.contains(currentPlayer)) {
+            skipNextTurn.remove(currentPlayer);
+            currentPlayer = (currentPlayer + 1) % numPlayers;
+            return;
+        }
+
+        Random random = new Random();
+        int roll1, roll2, rollSum;
+        String playerType = playerTypes.get(currentPlayer);
+
+        if (playerType.equals("Sortudo")) {
+            do {
+                roll1 = random.nextInt(6) + 1;
+                roll2 = random.nextInt(6) + 1;
+                rollSum = roll1 + roll2;
+            } while (rollSum < 7);
+        } else if (playerType.equals("Azarado")) {
+            do {
+                roll1 = random.nextInt(6) + 1;
+                roll2 = random.nextInt(6) + 1;
+                rollSum = roll1 + roll2;
+            } while (rollSum > 6);
+        } else {
+            roll1 = random.nextInt(6) + 1;
+            roll2 = random.nextInt(6) + 1;
+            rollSum = roll1 + roll2;
+        }
+
+        int newPosition = playerPositions.get(currentPlayer) + rollSum;
+
+        if (newPosition >= BOARD_SIZE - 1) {
+            newPosition = BOARD_SIZE - 1;
+        }
+
+        playerPositions.set(currentPlayer, newPosition);
+        updatePlayerMarkers();
+
+        diceValueLabel.setText("Dice Value: " + roll1 + " + " + roll2 + " = " + rollSum);
+
+        handleSpecialPositions(newPosition);
+
+        if (newPosition == BOARD_SIZE - 1) {
+            showAlert("Player " + (currentPlayer + 1) + " wins the game!");
+        }
+
+        if (roll1 == roll2) {
+            extraTurn = true;
+        }
+
+        if (!extraTurn) {
+            currentPlayer = (currentPlayer + 1) % numPlayers;
+        } else {
+            extraTurn = false;
+        }
+    }
+
+    private void handleSpecialPositions(int position) {
+        if (skipTurnPositions.contains(position)) {
+            skipNextTurn.add(currentPlayer);
+        } else if (luckPositions.contains(position) && !playerTypes.get(currentPlayer).equals("Azarado")) {
+            playerPositions.set(currentPlayer, playerPositions.get(currentPlayer) + 3);
+        } else if (chooseReturnPositions.contains(position)) {
+            ChoiceDialog<Integer> dialog = new ChoiceDialog<>(0, getPlayersExcludingCurrent());
+            dialog.setTitle("Choose Player");
+            dialog.setHeaderText("Choose a player to send back to start:");
+            dialog.setContentText("Player:");
+
+            Optional<Integer> result = dialog.showAndWait();
+            result.ifPresent(player -> playerPositions.set(player, 0));
+        } else if (position == 13) {
+            Random random = new Random();
+            int newTypeIndex = random.nextInt(3);
+            String newType = Arrays.asList("Normal", "Sortudo", "Azarado").get(newTypeIndex);
+            playerTypes.set(currentPlayer, newType);
+        } else if (magicPositions.contains(position)) {
+            int lastPositionPlayer = getLastPositionPlayer();
+            if (lastPositionPlayer != currentPlayer) {
+                int temp = playerPositions.get(currentPlayer);
+                playerPositions.set(currentPlayer, playerPositions.get(lastPositionPlayer));
+                playerPositions.set(lastPositionPlayer, temp);
+            }
+        }
+
+        updatePlayerMarkers();
+    }
+
+    private List<Integer> getPlayersExcludingCurrent() {
+        List<Integer> players = new ArrayList<>();
+        for (int i = 0; i < numPlayers; i++) {
+            if (i != currentPlayer) players.add(i);
+        }
+        return players;
+    }
+
+    private int getLastPositionPlayer() {
+        int minPosition = BOARD_SIZE;
+        int lastPlayer = currentPlayer;
+        for (int i = 0; i < numPlayers; i++) {
+            if (playerPositions.get(i) < minPosition) {
+                minPosition = playerPositions.get(i);
+                lastPlayer = i;
+            }
+        }
+        return lastPlayer;
+    }
+
+    private void updatePlayerMarkers() {
+        grid.getChildren().removeAll(playerMarkers);
+        Map<Integer, List<Text>> positionMap = new HashMap<>();
+
+        for (int i = 0; i < numPlayers; i++) {
+            int position = playerPositions.get(i);
+            positionMap.putIfAbsent(position, new ArrayList<>());
+            positionMap.get(position).add(playerMarkers.get(i));
+        }
+
+        for (Map.Entry<Integer, List<Text>> entry : positionMap.entrySet()) {
+            int position = entry.getKey();
+            List<Text> markers = entry.getValue();
+
+            int row = position / GRID_COLUMNS;
+            int col = position % GRID_COLUMNS;
+
+            for (int i = 0; i < markers.size(); i++) {
+                 Text marker = markers.get(i);
+                 StackPane stack = new StackPane();
+                 stack.setAlignment(Pos.TOP_LEFT);
+                 stack.getChildren().add(marker);
+                 StackPane.setMargin(marker, new Insets(i * 10, 0, 0, i * 10));
+                 grid.add(stack, col, row);
+            }
+            
+        }
+    }
+
+    private void showAlert(String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Game Information");
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+}
+
